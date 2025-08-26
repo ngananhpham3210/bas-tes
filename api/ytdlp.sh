@@ -12,7 +12,7 @@ build() {
   # 1. Download the most suitable pre-compiled Python binary.
   # This version is x86_64, for Linux with GNU libc, and is stripped for minimal size.
   # NOTE: The date in the filename is just a build timestamp from the list you provided.
-  local python_url="https://github.com/indygreg/python-build-standalone/releases/download/20240518/cpython-3.11.9+20240518-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+  local python_url="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
 
   echo "Downloading standalone Python from $python_url..."
   local python_tarball
