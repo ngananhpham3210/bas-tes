@@ -49,11 +49,9 @@ log_directory_details_recursive() {
 # --- Standard Setup Functions ---
 
 setup_runtime_environment() {
-  # At runtime, we need to add three locations to our environment:
-  # 1. The .import-cache/bin directory for executables like yt-dlp, curl, jq.
-  # 2. The python/bin directory for the python interpreter itself.
-  # 3. The dependencies directory for Python's import path.
-  export PATH="/var/task/.import-cache/bin:/var/task/$PYTHON_DIR/bin:$PATH"
+  # We still set the PATH so we can find `python3` easily.
+  # And PYTHONPATH is critical for yt-dlp's imports to work.
+  export PATH="/var/task/$PYTHON_DIR/bin:$PATH"
   export PYTHONPATH="/var/task/$DEPS_DIR"
 }
 
@@ -92,12 +90,10 @@ function build() {
   log "Dependencies installed successfully."
 
   # --- Step 4: Move yt-dlp executable to .import-cache/bin ---
-  # This makes it a globally available command in our runtime.
   log "Moving yt-dlp executable to .import-cache/bin..."
-  # The builder (`index.ts`) creates `.import-cache` but not necessarily `bin`, so we ensure it exists.
   mkdir -p "./.import-cache/bin"
   mv "./$DEPS_DIR/bin/yt-dlp" "./.import-cache/bin/"
-  chmod +x "./.import-cache/bin/yt-dlp" # Ensure it's executable
+  chmod +x "./.import-cache/bin/yt-dlp"
   log "yt-dlp executable moved successfully."
   
   log "Logging Final Build Environment Details..."
@@ -107,6 +103,7 @@ function build() {
   log "Build Step Finished"
 }
 
+# --- MODIFIED HANDLER ---
 function handler() {
   setup_runtime_environment
 
@@ -115,17 +112,24 @@ function handler() {
   log_directory_details_recursive "/var/task/.import-cache"
 
   # --- Your Custom Application Logic Goes Here ---
-  # Now we can call yt-dlp directly as a command.
-  log "Handler invoked. Verifying yt-dlp executable..."
-  
-  log "--- Verifying PATH ---"
-  echo "$PATH"
-  
-  log "--- Finding yt-dlp executable ---"
-  which yt-dlp
+  log "Handler invoked. Verifying yt-dlp by executing it with python3..."
 
-  log "--- Executing yt-dlp --version ---"
-  yt-dlp --version
+  # Define the full path to the script for clarity and robustness.
+  local yt_dlp_script="/var/task/.import-cache/bin/yt-dlp"
+
+  log "--- Verifying python3 can be found ---"
+  which python3
+
+  log "--- Verifying PYTHONPATH is set ---"
+  echo "PYTHONPATH=$PYTHONPATH"
+  
+  log "--- Verifying yt-dlp script exists ---"
+  ls -l "$yt_dlp_script"
+
+  log "--- Executing yt-dlp --version with explicit python3 interpreter ---"
+  # This is the key command: it uses our packaged python3 to run the script.
+  # It works because PYTHONPATH is set, allowing the script to find its libraries.
+  python3 "$yt_dlp_script" --version
 
   log "Handler Finished"
 }
