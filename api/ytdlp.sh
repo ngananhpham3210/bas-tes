@@ -27,14 +27,31 @@ function build() {
   echo "Cleaning up intermediate files..."
   rm -rf python
   rm "$FILENAME"
+# This function runs during the Vercel build process.
+function build() {
+  echo "--- Python Build Step ---"
 
-  # Step 5: Rename the clean directory to 'python'.
+  # --- FIX: Changed URL to the aarch64 (ARM) version ---
+  PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+  # --------------------------------------------------------
+  FILENAME=$(basename "$PYTHON_URL")
+
+  echo "Downloading Python for ARM64 from $PYTHON_URL..."
+  curl --retry 3 -L -o "$FILENAME" "$PYTHON_URL"
+  echo "Download complete."
+
+  # The rest of the build process remains the same
+  echo "Extracting $FILENAME..."
+  tar -xzf "$FILENAME"
+  mkdir python_final
+  echo "Copying and resolving symlinks..."
+  cp -RL python/* python_final/
+  echo "Cleaning up..."
+  rm -rf python
+  rm "$FILENAME"
   mv python_final python
-
-  # --- FIX: Add execute permissions to all files in the python/bin directory ---
-  echo "Setting execute permissions on Python binaries..."
+  echo "Setting execute permissions..."
   chmod -R +x python/bin
-  # -----------------------------------------------------------------------------
 
   echo "--- Python Build Step Finished ---"
 }
