@@ -48,6 +48,16 @@ function build() {
   echo "Setting execute permissions on Python binaries..."
   chmod -R +x python/bin
 
+  # --- NEW: Install yt-dlp ---
+  echo "Installing yt-dlp using our standalone Python's pip..."
+  # Create a directory to hold our dependencies
+  mkdir dependencies
+  # Use the specific pip from our downloaded Python to install yt-dlp
+  # into the 'dependencies' directory.
+  python/bin/pip install --target=dependencies yt-dlp
+  echo "yt-dlp installation complete."
+  # --- END NEW ---
+
   echo "--- Build Step Finished ---"
 }
 
@@ -59,6 +69,10 @@ function handler() {
   # Add our custom Python's `bin` directory to the PATH environment variable.
   # This makes the `python3` command available.
   export PATH="$PWD/python/bin:$PATH"
+
+  # --- NEW: Add our dependencies to Python's search path ---
+  # This tells Python to look for modules in our 'dependencies' folder.
+  export PYTHONPATH="$PWD/dependencies"
 
   # --- Your Custom Logic Goes Here ---
 
@@ -73,12 +87,15 @@ function handler() {
   python3 --version
   echo
 
-  echo "Running an inline Python script:"
+  echo "Running an inline Python script to test yt-dlp:"
   python3 -c '
 import sys
 import platform
+import yt_dlp  # Try to import the library
+
 print(f"Hello from Python {sys.version}!")
 print(f"Running on platform: {platform.system()} {platform.machine()}")
+print(f"Successfully imported yt-dlp version: {yt_dlp.version.__version__}")
 '
   echo
   echo "--- Handler Finished ---"
