@@ -1,50 +1,65 @@
-# FILE: api/index.sh
 #!/bin/bash
 set -euo pipefail
 
-# This `build` function runs once during `vercel build`
+# ==============================================================================
+# BUILD-TIME LOGIC
+# This `build` function is automatically executed by the Vercel Bash builder
+# during the `vercel build` step.
+# ==============================================================================
 function build() {
-  echo "--- Installing Standalone Python 3.12 ---"
+  echo "--- Python Standalone Build Step ---"
 
-  # 1. Define the URL and the target directory inside the Lambda
-  local PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
-  
-  # This will become /var/task/.import-cache/python at runtime
-  local TARGET_DIR=".import-cache/python"
+  # 1. Define variables for clarity
+  PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
+  ARCHIVE_NAME="python.tar.gz"
+  INSTALL_DIR=".import-cache" # This will become /var/task/.import-cache in the Lambda
 
-  # 2. Create the target directory
-  # The `.` refers to the build output directory
-  mkdir -p "$TARGET_DIR"
+  # 2. Ensure the target directory exists
+  mkdir -p "$INSTALL_DIR"
 
-  # 3. Download and extract the archive in one step
-  #    - `curl -Ls`: Download, follow redirects (-L), and be silent (-s)
-  #    - `tar -xz`: Extract (-x) from a gzipped (-z) archive
-  #    - `-C "$TARGET_DIR"`: Extract into our target directory
-  #    - `--strip-components=1`: Remove the top-level directory (e.g., `python/`) from the archive
-  echo "Downloading and extracting Python..."
-  curl -Ls "$PYTHON_URL" | tar -xz -C "$TARGET_DIR" --strip-components=1
+  # 3. Download the archive
+  echo "Downloading Python from $PYTHON_URL..."
+  # Use -L to follow redirects and -o to specify output file
+  curl -L -o "$ARCHIVE_NAME" "$PYTHON_URL"
 
-  echo "--- Python installation complete ---"
+  # 4. Extract the archive into the target directory
+  # The standalone build extracts to a `python/` sub-directory
+  echo "Extracting Python to $INSTALL_DIR/..."
+  tar -xzf "$ARCHIVE_NAME" -C "$INSTALL_DIR/"
+
+  # 5. Clean up the downloaded archive to keep the Lambda size small
+  rm "$ARCHIVE_NAME"
+
+  echo "Python installation complete. It will be available at $INSTALL_DIR/python"
+  echo "------------------------------------"
 }
 
-# This `handler` function runs on every invocation of the Lambda
+
+# ==============================================================================
+# RUNTIME LOGIC
+# This `handler` function is executed by the Vercel Bash runtime for each
+# incoming HTTP request.
+# ==============================================================================
 function handler() {
-  # At runtime, our python binary is now available at this relative path
-  local PYTHON_BIN="./.import-cache/python/bin/python3"
+  # The Python executable is now available at a relative path
+  PYTHON_EXEC="./.import-cache/python/bin/python3"
 
-  # Let's execute it to prove it works
-  echo "Checking installed Python version:"
-  $PYTHON_BIN --version
-  
-  echo "" # Newline for cleaner logs
+  echo "Invoking Python script..."
 
-  # You can now run any Python script you want
-  echo "Running an inline Python script:"
-  $PYTHON_BIN -c '
-import os
+  # Example: Execute a simple Python script inline
+  local python_output
+  python_output=$($PYTHON_EXEC -c '
 import sys
+import platform
 
-print(f"Hello from Python {sys.version}!")
-print(f"Running in directory: {os.getcwd()}")
-'
+print(f"Hello from Python {sys.version} on {platform.system()}!")
+print("This script is running inside a Vercel Bash Lambda.")
+')
+
+  # Set HTTP headers and response code
+  http_response_code 200
+  http_response_header "Content-Type" "text/plain"
+
+  # Send the output from the Python script as the HTTP response body
+  echo "$python_output"
 }
