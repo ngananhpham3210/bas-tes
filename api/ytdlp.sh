@@ -2,8 +2,6 @@
 set -euo pipefail
 
 # This function runs during the Vercel build process.
-# Its job is to download the standalone Python distribution and extract it.
-# The resulting `python` directory will be included in the Lambda package.
 function build() {
   echo "--- Python Build Step ---"
 
@@ -16,9 +14,10 @@ function build() {
   curl --retry 3 -L -o "$FILENAME" "$PYTHON_URL"
   echo "Download complete."
 
-  # Extract the contents. This will create a `python` directory.
+  # Extract the contents, dereferencing symlinks to create hard copies.
+  # This avoids issues with the Vercel builder's handling of symlinks.
   echo "Extracting $FILENAME..."
-  tar -xzf "$FILENAME"
+  tar --dereference -xzf "$FILENAME"
   echo "Extraction complete."
 
   # Clean up the downloaded archive to keep the Lambda size small
@@ -32,7 +31,6 @@ function build() {
 function handler() {
   # Add the `python/bin` directory (created during the build step) to the PATH.
   # This makes the `python3` executable available to this script.
-  # $LAMBDA_TASK_ROOT is the current directory, so we can use a relative path.
   export PATH="$PWD/python/bin:$PATH"
 
   # --- Your Python logic goes here ---
