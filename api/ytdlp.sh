@@ -96,6 +96,22 @@ setup_runtime_environment() {
 
 function build() {
   log "Build Step Started"
+
+  # --- FIX: INSTALL THE 'tree' COMMAND ---
+  # Vercel build environments are minimal and don't include `tree` by default.
+  # We install it here so our logging function can use it.
+  log "Installing 'tree' utility for better logging..."
+  if command -v yum &> /dev/null; then
+    # For Amazon Linux / CentOS based images
+    yum install -y tree
+  elif command -v apt-get &> /dev/null; then
+    # For Debian / Ubuntu based images
+    apt-get update && apt-get install -y tree
+  else
+    log "WARNING: Could not find 'yum' or 'apt-get'. Unable to install 'tree'."
+  fi
+  # --- END OF FIX ---
+  
   setup_python_runtime
   install_python_dependencies
   
@@ -117,7 +133,9 @@ function handler() {
 
   log "Logging Runtime Environment Details..."
 
-  # Log the structure of the final deployed function at /var/task.
+  # The `tree` command is only needed at build time, not at runtime.
+  # The runtime environment is even more minimal and likely won't have it,
+  # so this log will correctly fall back to `ls -la`.
   log_deployment_structure "/var/task"
 
   # Log the full contents of the runtime import cache.
