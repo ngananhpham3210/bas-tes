@@ -1,45 +1,47 @@
-# FILE: api/index.sh
 #!/bin/bash
-set -euo pipefail
 
-# This is your regular handler function.
-# It can now use the Python binary installed during the build step.
-function handler() {
-  # Add the custom Python installation to the PATH
-  export PATH="/var/task/.import-cache/python/bin:$PATH"
+# ===================================================================
+# BUILD FUNCTION
+# This function is automatically executed by the Vercel builder.
+# It runs in a temporary directory that will become /var/task.
+# ===================================================================
+function build() {
+  echo "--- Building: Installing Standalone Python ---"
+
+  # 1. Define the URL and the target directory
+  PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
+  PYTHON_DIR=".import-cache/python"
+
+  # 2. Create the target directory
+  mkdir -p "$PYTHON_DIR"
+
+  # 3. Download and extract the archive in one step
+  # - `curl -L`: Downloads the file, following redirects.
+  # - `tar zxvf -`: Extracts the gzipped tar archive from standard input (-).
+  # - `-C "$PYTHON_DIR"`: Extracts the files into our target directory.
+  # - `--strip-components=1`: Removes the top-level directory (e.g., `python/`) from the archive.
+  echo "Downloading and extracting Python from $PYTHON_URL"
+  curl -L "$PYTHON_URL" | tar zxvf - -C "$PYTHON_DIR" --strip-components=1
+
+  # 4. (Optional but Recommended) Symlink the python executable to the bin directory
+  # The bootstrap script adds .import-cache/bin to the PATH.
+  # This makes `python3` directly available in your handler.
+  ln -s "../python/bin/python3" ".import-cache/bin/python3"
   
-  echo "--- Running Python from standalone build ---"
-  python --version
-  
-  echo "--- Executing an inline Python script ---"
-  python -c 'import sys; print(f"Hello from Python {sys.version}!")'
+  echo "--- Python installation complete ---"
 }
 
-# This `build` function is automatically called by the Vercel Runtime during the build process.
-function build() {
-  echo "----> Installing standalone Python 3.12..."
-  
-  # 1. Define the URL and the output filename
-  PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
-  ARCHIVE_NAME="python.tar.gz"
 
-  # 2. Download the archive
-  #    -L follows redirects
-  #    -o specifies the output file
-  echo "      Downloading from $PYTHON_URL"
-  curl -fLo "$ARCHIVE_NAME" "$PYTHON_URL"
+# ===================================================================
+# HANDLER FUNCTION
+# This is your serverless function handler.
+# ===================================================================
+function handler() {
+  # Now you can use python3 directly!
+  local python_version
+  python_version=$(python3 --version)
 
-  # 3. Create the destination directory inside the build output
-  #    This will become /var/task/.import-cache/ at runtime.
-  mkdir -p .import-cache
-
-  # 4. Extract the archive into the target directory
-  #    -C specifies the output directory
-  echo "      Extracting archive to ./.import-cache/"
-  tar -xzf "$ARCHIVE_NAME" -C ./.import-cache
-
-  # 5. Clean up the downloaded archive to keep the Lambda small
-  rm "$ARCHIVE_NAME"
-  
-  echo "----> Python installation complete."
+  http_response_header "Content-Type" "text/plain"
+  echo "Hello from Bash!"
+  echo "Python is available: $python_version"
 }
