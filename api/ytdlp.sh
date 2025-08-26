@@ -9,21 +9,19 @@ build() {
   local ytdlp_source_path
   ytdlp_source_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
 
-  # 2. Make the downloaded file executable.
-  chmod +x "$ytdlp_source_path"
+  # 2. Define the desired, predictable path inside the `bin` directory.
+  local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
 
   # 3. Ensure the bin directory exists.
   mkdir -p "$IMPORT_CACHE/bin"
 
-  # 4. Define the desired, predictable path inside the `bin` directory.
-  local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
+  # 4. THE FIX: Copy the binary to the desired location instead of symlinking.
+  cp "$ytdlp_source_path" "$ytdlp_bin_path"
 
-  # 5. THE FIX: Use `ln -sf` to force overwrite the symlink if it exists.
-  #    -s: symbolic link
-  #    -f: force (remove existing destination files)
-  ln -sf "$ytdlp_source_path" "$ytdlp_bin_path"
+  # 5. Make the NEW file executable. This is important!
+  chmod +x "$ytdlp_bin_path"
 
-  echo "Build complete. Symlink created for yt-dlp in the bin directory."
+  echo "Build complete. yt-dlp has been copied into the bin directory."
   echo "--- End Build Phase ---"
 }
 
@@ -35,7 +33,7 @@ handler() {
   # The path to our binary is now fixed and predictable.
   local YTDLP_PATH="$IMPORT_CACHE/bin/yt-dlp"
 
-  # Check if the file exists and is executable.
+  # Check if the file exists and is executable. This should now pass.
   if [ -x "$YTDLP_PATH" ]; then
     # Execute the command and capture its output into a variable.
     local ytdlp_version
@@ -44,8 +42,14 @@ handler() {
     # Use echo to format the final HTTP response body.
     echo "Hello from Vercel! The yt-dlp version is: $ytdlp_version"
   else
-    # If something went wrong, send an error response.
+    # Error handling for the case where the file is still missing.
     http_response_code 500
     echo "Error: yt-dlp binary not found or not executable at '$YTDLP_PATH'."
+
+    # Add extra debugging to the logs if we hit this error case.
+    echo "--- Runtime Error Debug ---" >&2
+    echo "Listing contents of $IMPORT_CACHE/bin:" >&2
+    ls -l "$IMPORT_CACHE/bin" >&2
+    echo "--- End Debug ---" >&2
   fi
 }
