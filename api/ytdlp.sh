@@ -3,50 +3,46 @@ set -euo pipefail
 
 # ==============================================================================
 # BUILD-TIME LOGIC
-# This `build` function is automatically executed by the Vercel Bash builder
-# during the `vercel build` step.
 # ==============================================================================
 function build() {
   echo "--- Python Standalone Build Step ---"
 
-  # 1. Define variables for clarity
+  # 1. Define variables with a non-conflicting directory name
   PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
   ARCHIVE_NAME="python.tar.gz"
-  INSTALL_DIR=".import-cache" # This will become /var/task/.import-cache in the Lambda
+  # Use a neutral name like "python" instead of ".import-cache"
+  INSTALL_DIR="python"
 
   # 2. Ensure the target directory exists
   mkdir -p "$INSTALL_DIR"
 
   # 3. Download the archive
   echo "Downloading Python from $PYTHON_URL..."
-  # Use -L to follow redirects and -o to specify output file
   curl -L -o "$ARCHIVE_NAME" "$PYTHON_URL"
 
   # 4. Extract the archive into the target directory
-  # The standalone build extracts to a `python/` sub-directory
+  # Use --strip-components=1 to move the contents of the inner 'python' folder
+  # directly into our target directory, avoiding a nested 'python/python' structure.
   echo "Extracting Python to $INSTALL_DIR/..."
-  tar -xzf "$ARCHIVE_NAME" -C "$INSTALL_DIR/"
+  tar -xzf "$ARCHIVE_NAME" -C "$INSTALL_DIR/" --strip-components=1
 
-  # 5. Clean up the downloaded archive to keep the Lambda size small
+  # 5. Clean up the downloaded archive
   rm "$ARCHIVE_NAME"
 
-  echo "Python installation complete. It will be available at $INSTALL_DIR/python"
+  echo "Python installation complete. It will be available at ./$INSTALL_DIR"
   echo "------------------------------------"
 }
 
 
 # ==============================================================================
 # RUNTIME LOGIC
-# This `handler` function is executed by the Vercel Bash runtime for each
-# incoming HTTP request.
 # ==============================================================================
 function handler() {
-  # The Python executable is now available at a relative path
-  PYTHON_EXEC="./.import-cache/python/bin/python3"
+  # Update the path to the Python executable to match the new INSTALL_DIR
+  PYTHON_EXEC="./python/bin/python3"
 
   echo "Invoking Python script..."
 
-  # Example: Execute a simple Python script inline
   local python_output
   python_output=$($PYTHON_EXEC -c '
 import sys
