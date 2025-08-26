@@ -8,12 +8,10 @@ readonly PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releas
 readonly PYTHON_DIR="python"
 readonly DEPS_DIR="dependencies"
 
-
 # --- Helper Functions ---
 
 log() {
-  # Prepending with "»" to distinguish our logs from the runtime's logs.
-  echo "» $1"
+  echo "--> $1"
 }
 
 setup_python_runtime() {
@@ -22,9 +20,9 @@ setup_python_runtime() {
   filename=$(basename "$PYTHON_URL")
 
   log "Downloading Python from $PYTHON_URL"
-  # Use the `import` command provided by the runtime to cache the download
-  # This speeds up subsequent builds.
-  import curl "$PYTHON_URL" > "$filename"
+  # The `import` tool from @vercel/bash provides `curl`
+  import "curl"
+  curl --retry 3 -L -o "$filename" "$PYTHON_URL"
 
   log "Extracting and resolving symlinks..."
   local temp_extract_dir="python_temp_extracted"
@@ -39,7 +37,6 @@ setup_python_runtime() {
   log "Cleaning up intermediate files..."
   rm -rf "$temp_extract_dir"
   rm "$filename"
-
   log "Python runtime setup complete."
 }
 
@@ -57,58 +54,63 @@ setup_runtime_environment() {
 
 # --- Vercel Build and Handler Functions ---
 
+#
+# build() runs ONCE during deployment.
+# The @vercel/bash runtime populates .import-cache BEFORE this function runs.
+#
 function build() {
   log "Build Step Started"
+  
+  # --- ADDED: LOG IMPORT-CACHE AT BUILD TIME ---
+  log "Inspecting .import-cache contents at build time..."
+  # The $IMPORT_CACHE variable is set by the Vercel builder (`src/build.sh`)
+  if [ -d "$IMPORT_CACHE" ]; then
+    echo "--- .import-cache location: $IMPORT_CACHE ---"
+    # Using `ls -lR` for a recursive, detailed directory listing.
+    ls -lR "$IMPORT_CACHE"
+    echo "------------------------------------------------"
+  else
+    echo "WARNING: .import-cache directory not found at build time."
+  fi
+  # --- END LOGGING ---
+  
   setup_python_runtime
   install_python_dependencies
-
-  # --- NEW: LOG IMPORT-CACHE AT BUILD TIME ---
-  # The `$IMPORT_CACHE` variable is set by the Vercel builder (`build.sh`).
-  # This shows us what the `import.sh` script has cached during this build.
-  log "Inspecting import-cache contents at BUILD TIME..."
-  if [ -d "$IMPORT_CACHE" ]; then
-    # Use `ls -lR` for a recursive, detailed listing.
-    ls -lR "$IMPORT_CACHE"
-  else
-    log "IMPORT_CACHE directory not found at: $IMPORT_CACHE"
-  fi
-  # --- END NEW ---
-
+  
   log "Build Step Finished"
 }
 
+#
+# handler() runs for EVERY incoming request.
+#
 function handler() {
+  # --- ADDED: LOG IMPORT-CACHE AT RUNTIME ---
+  log "Inspecting .import-cache contents at runtime..."
+  # The $IMPORT_CACHE variable is set by the Lambda bootstrap (`src/bootstrap`)
+  if [ -d "$IMPORT_CACHE" ]; then
+    echo "--- .import-cache location: $IMPORT_CACHE ---"
+    # The cache is now located inside the Lambda task root.
+    ls -lR "$IMPORT_CACHE"
+    echo "------------------------------------------------"
+  else
+    # This should not happen if the build was successful.
+    echo "ERROR: .import-cache directory not found at runtime."
+  fi
+  # --- END LOGGING ---
+
+  # First, set up the environment so our custom Python is used.
   setup_runtime_environment
 
-  # --- NEW: LOG IMPORT-CACHE AT RUNTIME ---
-  # The `$IMPORT_CACHE` variable is set by the `bootstrap` script.
-  # Its path within the Lambda is `$LAMBDA_TASK_ROOT/.import-cache`.
-  # This shows us what was packaged into the final serverless function.
-  log "Inspecting import-cache contents at RUNTIME..."
-  if [ -d "$IMPORT_CACHE" ]; then
-    ls -lR "$IMPORT_CACHE"
-  else
-    log "IMPORT_CACHE directory not found at runtime: $IMPORT_CACHE"
-  fi
-  # --- END NEW ---
-
+  # --- Your Custom Application Logic Goes Here ---
   log "Handler invoked. Verifying environment..."
   echo
-  echo "Runtime Architecture: $(uname -m)"
   echo "Python Version: $(python3 --version)"
   echo
   log "Running verification script..."
   python3 -c '
-import sys
-import platform
-import yt_dlp
-
+import sys, platform, yt_dlp
 print(f"Hello from Python {sys.version.split()[0]}!")
-print(f"Running on platform: {platform.system()} {platform.machine()}")
-try:
-    print(f"Successfully imported yt-dlp version: {yt_dlp.version.__version__}")
-except Exception as e:
-    print(f"Error importing or using yt_dlp: {e}")
+print(f"Successfully imported yt-dlp version: {yt_dlp.version.__version__}")
 '
   echo
   log "Handler Finished"
