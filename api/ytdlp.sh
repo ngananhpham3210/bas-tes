@@ -4,8 +4,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-readonly PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
-readonly PYTHON_DIR="python"
+# We no longer need PYTHON_URL or PYTHON_DIR, as we're using the system's Python.
 readonly DEPS_DIR="dependencies" # This folder will contain yt-dlp and its dependencies
 
 
@@ -16,7 +15,7 @@ log() {
 }
 
 # Logs the structure of the deployment directory (`.` at build time, `/var/task` at runtime).
-# It intelligently avoids deep recursion into the noisy 'python' and 'dependencies' folders.
+# It intelligently avoids deep recursion into the noisy 'dependencies' folder.
 log_deployment_structure() {
   local target_dir="$1"
   
@@ -28,17 +27,15 @@ log_deployment_structure() {
   echo
   echo "============================================================"
   echo "--- Structure of Deployment Directory: $target_dir"
-  echo "--- (Excluding contents of 'python' and 'dependencies')"
+  echo "--- (Excluding contents of 'dependencies')"
   echo "============================================================"
   
   if command -v tree &> /dev/null; then
-    # PREFERRED METHOD: Use `tree` to show a clean hierarchy, ignoring the specified folders.
-    # -L 3: Recurse up to 3 levels deep.
-    # -I 'python|dependencies': Ignore directories named 'python' or 'dependencies'.
-    tree -L 3 -I "$PYTHON_DIR|$DEPS_DIR" "$target_dir"
+    # PREFERRED METHOD: Use `tree` to show a clean hierarchy.
+    # We now only need to ignore the dependencies directory.
+    tree -L 3 -I "$DEPS_DIR" "$target_dir"
   else
     # FALLBACK METHOD: If `tree` is not installed, just list the top-level contents.
-    # This shows that the excluded directories exist without listing their thousands of files.
     log "NOTE: 'tree' command not found. Falling back to a non-recursive 'ls' listing."
     ls -la "$target_dir"
   fi
@@ -67,27 +64,23 @@ log_directory_details_recursive() {
 
 # --- Standard Setup Functions ---
 
-setup_python_runtime() {
-  log "Setting up Python runtime..."
-  local filename; filename=$(basename "$PYTHON_URL")
-  curl --retry 3 -L -o "$filename" "$PYTHON_URL"
-  local temp_extract_dir="python_temp_extracted"
-  tar -xzf "$filename" -C . && mv "$PYTHON_DIR" "$temp_extract_dir"
-  mkdir "$PYTHON_DIR" && cp -RL "$temp_extract_dir"/* "$PYTHON_DIR"/
-  chmod -R +x "$PYTHON_DIR/bin"
-  rm -rf "$temp_extract_dir" "$filename"
-  log "Python runtime setup complete."
-}
+# --- REMOVED ---
+# The setup_python_runtime function is no longer needed.
 
 install_python_dependencies() {
   log "Installing Python dependencies..."
-  mkdir "$DEPS_DIR"
-  "$PYTHON_DIR/bin/pip" install --target="$DEPS_DIR" yt-dlp
+  mkdir -p "$DEPS_DIR"
+  # --- CHANGED ---
+  # Use the system's `python3` and `pip` to install packages into our target directory.
+  # Using `python3 -m pip` is a best practice to ensure you're using the correct pip.
+  python3 -m pip install --target="$DEPS_DIR" yt-dlp
   log "Dependencies installed successfully."
 }
 
 setup_runtime_environment() {
-  export PATH="$PWD/$PYTHON_DIR/bin:$PATH"
+  # --- CHANGED ---
+  # We no longer need to modify the PATH, as `python3` is already in the system PATH.
+  # We ONLY need to set PYTHONPATH so the interpreter can find our vendored dependencies.
   export PYTHONPATH="$PWD/$DEPS_DIR"
 }
 
@@ -97,30 +90,20 @@ setup_runtime_environment() {
 function build() {
   log "Build Step Started"
 
-  # --- FIX: INSTALL THE 'tree' COMMAND ---
-  # Vercel build environments are minimal and don't include `tree` by default.
-  # We install it here so our logging function can use it.
-  log "Installing 'tree' utility for better logging..."
-  if command -v yum &> /dev/null; then
-    # For Amazon Linux / CentOS based images
-    yum install -y tree
-  elif command -v apt-get &> /dev/null; then
-    # For Debian / Ubuntu based images
-    apt-get update && apt-get install -y tree
-  else
-    log "WARNING: Could not find 'yum' or 'apt-get'. Unable to install 'tree'."
-  fi
-  # --- END OF FIX ---
+  # --- NEW ---
+  # Install system-level tools needed for our build.
+  # Vercel's environment uses `yum`. We install pip and the tree utility.
+  # `python3-devel` is good practice in case any packages need to compile C extensions.
+  log "Installing system dependencies: python3-pip, python3-devel, tree..."
+  yum install -y python3-pip python3-devel tree
   
-  setup_python_runtime
+  # --- CHANGED ---
+  # We now just call the dependency installer directly.
   install_python_dependencies
   
   log "Logging Build Environment Details..."
-  
-  # Log the structure of the build output directory (`.`), excluding the large folders.
   log_deployment_structure "."
   
-  # Log the full contents of the import cache, as its details are often important.
   if [[ -n "${IMPORT_CACHE-}" && -d "$IMPORT_CACHE" ]]; then
     log_directory_details_recursive "$IMPORT_CACHE"
   fi
@@ -132,13 +115,8 @@ function handler() {
   setup_runtime_environment
 
   log "Logging Runtime Environment Details..."
-
-  # The `tree` command is only needed at build time, not at runtime.
-  # The runtime environment is even more minimal and likely won't have it,
-  # so this log will correctly fall back to `ls -la`.
   log_deployment_structure "/var/task"
 
-  # Log the full contents of the runtime import cache.
   local runtime_cache_dir="./.import-cache"
   if [ -d "$runtime_cache_dir" ]; then
     log_directory_details_recursive "$runtime_cache_dir"
@@ -146,6 +124,8 @@ function handler() {
 
   # --- Your Custom Application Logic Goes Here ---
   log "Handler invoked. Verifying yt-dlp installation..."
+  # This command now uses the system `python3` from the runtime environment.
+  # Because PYTHONPATH is set, it can import `yt_dlp` from the `dependencies` folder.
   python3 -c '
 import sys
 import platform
