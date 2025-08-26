@@ -15,10 +15,13 @@ build() {
   # 3. Ensure the bin directory exists.
   mkdir -p "$IMPORT_CACHE/bin"
 
-  # 4. THE FIX: Copy the binary to the desired location instead of symlinking.
+  # 4. THE FIX: Remove the destination file if it exists to prevent conflicts.
+  rm -f "$ytdlp_bin_path"
+
+  # 5. Copy the binary to the desired location.
   cp "$ytdlp_source_path" "$ytdlp_bin_path"
 
-  # 5. Make the NEW file executable. This is important!
+  # 6. Make the NEW file executable.
   chmod +x "$ytdlp_bin_path"
 
   echo "Build complete. yt-dlp has been copied into the bin directory."
@@ -33,7 +36,7 @@ handler() {
   # The path to our binary is now fixed and predictable.
   local YTDLP_PATH="$IMPORT_CACHE/bin/yt-dlp"
 
-  # Check if the file exists and is executable. This should now pass.
+  # Check if the file exists and is executable.
   if [ -x "$YTDLP_PATH" ]; then
     # Execute the command and capture its output into a variable.
     local ytdlp_version
@@ -45,11 +48,5 @@ handler() {
     # Error handling for the case where the file is still missing.
     http_response_code 500
     echo "Error: yt-dlp binary not found or not executable at '$YTDLP_PATH'."
-
-    # Add extra debugging to the logs if we hit this error case.
-    echo "--- Runtime Error Debug ---" >&2
-    echo "Listing contents of $IMPORT_CACHE/bin:" >&2
-    ls -l "$IMPORT_CACHE/bin" >&2
-    echo "--- End Debug ---" >&2
   fi
 }
