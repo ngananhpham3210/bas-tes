@@ -1,40 +1,43 @@
 #!/bin/bash
 
-# A global variable to hold the path to our binary
-YTDLP_PATH=""
-
-# The `build` function is executed only once when the serverless function is
-# deployed. It's the perfect place to download and set up dependencies.
+# The `build` function runs once at deploy time.
+# Its job is to download dependencies and place them in the import cache.
 build() {
   echo "--- Build Phase ---"
-  echo "Build-time IMPORT_CACHE is: $IMPORT_CACHE"
+  echo "Downloading and caching yt-dlp binary..."
 
-  echo "Build: Importing yt-dlp binary..."
-  YTDLP_PATH="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
-  chmod +x "$YTDLP_PATH"
-  echo "Build: yt-dlp downloaded and made executable at $YTDLP_PATH"
+  # Download the file. It will be stored in the cache.
+  local ytdlp_build_path
+  ytdlp_build_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2025.08.22/yt-dlp_linux")"
 
-  echo "Listing build-time cache contents:"
-  # Recursively list the contents of the cache directory to see the structure
-  ls -lR "$IMPORT_CACHE"
+  # Make it executable. File permissions are preserved in the final Lambda package.
+  chmod +x "$ytdlp_build_path"
+
+  echo "Build complete. yt-dlp is cached and executable."
   echo "--- End Build Phase ---"
 }
 
-# The `handler` function is executed for every incoming HTTP request.
+# The `handler` function runs on every request.
+# Its job is to handle the request and produce a response.
 handler() {
   # Let the client know we are sending back plain text
   http_response_header "Content-Type" "text/plain"
 
-  # Print debug information to the runtime logs (not the HTTP response)
-  echo "--- Handler Phase ---" >&2
-  echo "Runtime IMPORT_CACHE variable is: $IMPORT_CACHE" >&2
-  echo "Runtime LAMBDA_TASK_ROOT/.import-cache path is: $LAMBDA_TASK_ROOT/.import-cache" >&2
+  # Get the path to the binary from the cache that was populated during build.
+  # This call is instant and does NOT re-download the file.
+  local YTDLP_PATH
+  YTDLP_PATH="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
 
-  echo "Listing runtime cache contents:" >&2
-  # This output will go to the Vercel Function logs
-  ls -lR "$LAMBDA_TASK_ROOT/.import-cache" >&2
-  echo "--- End Handler Phase ---" >&2
+  # For debugging, print the path to the Vercel logs.
+  echo "Handler: Found yt-dlp at: $YTDLP_PATH" >&2
 
-  # Execute the binary. Its output is the HTTP response body.
-  "$YTDLP_PATH" --version
+  # Check if the file exists and is executable before running it
+  if [ -x "$YTDLP_PATH" ]; then
+    # Execute the binary. Its output is the HTTP response body.
+    "$YTDLP_PATH" --version
+  else
+    # If something went wrong, send an error response.
+    http_response_code 500
+    echo "Error: yt-dlp binary not found or not executable at runtime."
+  fi
 }
