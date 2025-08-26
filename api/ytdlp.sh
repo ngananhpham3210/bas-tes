@@ -6,113 +6,93 @@ set -euo pipefail
 # --- Configuration ---
 # All settings are defined here for easy modification.
 
-# The Vercel builder provides the cache directory via the `IMPORT_CACHE` env var.
-# We provide a default for local testing.
-readonly VERCEL_CACHE_DIR="${IMPORT_CACHE:-.vercel_cache/bash}"
-
 # URL for the standalone Python build. Must match Vercel's runtime architecture (x86_64).
 readonly PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 
-# Directory names for our tools. These will be created inside the cache.
-readonly PYTHON_DIR_NAME="python_runtime"
-readonly DEPS_DIR_NAME="python_deps"
-
-# A "flag" file to check if the cache is populated.
-readonly INSTALL_FLAG_FILE="$VERCEL_CACHE_DIR/install_complete.flag"
-
-# At runtime, use the ephemeral /tmp directory for yt-dlp's own cache.
-readonly RUNTIME_CACHE_DIR="/tmp/ytdlp_cache"
+# Directory names for the Python runtime and its dependencies.
+readonly PYTHON_DIR="python"
+readonly DEPS_DIR="dependencies"
 
 
 # --- Helper Functions ---
 
-# A simple logging function to make output clear.
+# A simple logging function to make build output clear.
 log() {
   echo "--> $1"
 }
 
-# This function runs only when the cache is empty. It performs the expensive
-# download and installation steps directly into the Vercel cache directory.
-setup_dependencies_from_scratch() {
-  log "Cache is cold. Performing fresh installation into $VERCEL_CACHE_DIR..."
+# Downloads, extracts, and prepares the standalone Python runtime.
+setup_python_runtime() {
+  log "Setting up Python runtime..."
+  local filename
+  filename=$(basename "$PYTHON_URL")
 
-  # Ensure the cache directory exists and is clean for a fresh install.
-  rm -rf "$VERCEL_CACHE_DIR"
-  mkdir -p "$VERCEL_CACHE_DIR"
-
-  local python_archive_path="$VERCEL_CACHE_DIR/python.tar.gz"
-
-  # 1. Download Python
   log "Downloading Python from $PYTHON_URL"
-  curl --retry 3 -L -o "$python_archive_path" "$PYTHON_URL"
+  curl --retry 3 -L -o "$filename" "$PYTHON_URL"
 
-  # 2. Extract and prepare Python
-  # We extract, then do a deep copy (-L) to resolve all symlinks.
-  log "Extracting and preparing Python runtime..."
-  local temp_extract_dir="$VERCEL_CACHE_DIR/python_temp_extracted"
-  mkdir -p "$temp_extract_dir"
-  tar -xzf "$python_archive_path" -C "$temp_extract_dir"
-  
-  local final_python_path="$VERCEL_CACHE_DIR/$PYTHON_DIR_NAME"
-  mkdir -p "$final_python_path"
-  # The extracted folder is named 'python', copy its contents.
-  cp -RL "$temp_extract_dir/python/"* "$final_python_path"/
-  chmod -R +x "$final_python_path/bin"
+  # The archive contains symlinks which can cause issues. We extract and then
+  # perform a deep copy (-L) to resolve all symlinks into actual files.
+  log "Extracting and resolving symlinks..."
+  local temp_extract_dir="python_temp_extracted"
+  tar -xzf "$filename" -C . # Extract to current dir, creates 'python' folder
+  mv "$PYTHON_DIR" "$temp_extract_dir" # Rename to avoid conflict
+  mkdir "$PYTHON_DIR" # Create the final clean directory
+  cp -RL "$temp_extract_dir"/* "$PYTHON_DIR"/
 
-  # 3. Install Python Dependencies
-  log "Installing yt-dlp and its dependencies..."
-  local final_deps_path="$VERCEL_CACHE_DIR/$DEPS_DIR_NAME"
-  mkdir -p "$final_deps_path"
-  "$final_python_path/bin/pip" install --target="$final_deps_path" yt-dlp
+  log "Setting execute permissions on Python binaries..."
+  chmod -R +x "$PYTHON_DIR/bin"
 
-  # 4. Clean up and create the flag file
   log "Cleaning up intermediate files..."
   rm -rf "$temp_extract_dir"
-  rm "$python_archive_path"
-  
-  log "Installation complete. Caching for future builds."
-  touch "$INSTALL_FLAG_FILE"
+  rm "$filename"
+
+  log "Python runtime setup complete."
 }
 
-# Creates symlinks from the current build directory to the cached directories.
-# This makes the tools available to the handler without re-copying them.
-link_dependencies_from_cache() {
-  log "Linking dependencies from cache..."
-  # Symlink the Python runtime and dependencies into the current directory.
-  # The handler will expect to find them here.
-  ln -s "$VERCEL_CACHE_DIR/$PYTHON_DIR_NAME" python
-  ln -s "$VERCEL_CACHE_DIR/$DEPS_DIR_NAME" dependencies
+# Installs Python packages into the dedicated dependencies directory.
+install_python_dependencies() {
+  log "Installing Python dependencies..."
+  mkdir "$DEPS_DIR"
+  
+  # Use the specific pip from our downloaded Python to install packages.
+  # The --target flag installs them into a local directory.
+  "$PYTHON_DIR/bin/pip" install --target="$DEPS_DIR" yt-dlp
+  
+  log "Dependencies installed successfully."
 }
 
 # Sets the necessary environment variables for our custom Python runtime.
 setup_runtime_environment() {
   # Add our custom Python's `bin` directory to the PATH.
-  export PATH="$PWD/python/bin:$PATH"
+  export PATH="$PWD/$PYTHON_DIR/bin:$PATH"
 
   # Add our dependencies directory to Python's module search path.
-  export PYTHONPATH="$PWD/dependencies"
+  export PYTHONPATH="$PWD/$DEPS_DIR"
 }
 
 
 # --- Vercel Build and Handler Functions ---
 
 #
-# build() runs ONCE during deployment. It leverages the Vercel cache.
+# build() runs ONCE during deployment to prepare the serverless function.
 #
 function build() {
   log "Build Step Started"
-
-  # The core caching logic:
-  if [ -f "$INSTALL_FLAG_FILE" ]; then
-    log "Cache is warm. Found flag file: $INSTALL_FLAG_FILE"
-    log "Skipping download and installation."
-    ls -la "$VERCEL_CACHE_DIR" # Log cache contents for debugging
+  setup_python_runtime
+  install_python_dependencies
+  
+  # --- LOGGING IMPORT CACHE AT BUILD TIME ---
+  log "--- Logging Import Cache (Build Time) ---"
+  # The builder (`index.ts`) sets the IMPORT_CACHE env var to the path
+  # where build-time cache files are stored.
+  if [[ -n "${IMPORT_CACHE-}" && -d "$IMPORT_CACHE" ]]; then
+    log "Found import cache at: $IMPORT_CACHE"
+    # Recursively list the contents to see the structure.
+    ls -laR "$IMPORT_CACHE"
   else
-    setup_dependencies_from_scratch
+    log "Build-time import cache directory not found or IMPORT_CACHE is not set."
   fi
-
-  # Always link the cached directories into the current build output.
-  link_dependencies_from_cache
+  log "--- End Build Time Import Cache Log ---"
 
   log "Build Step Finished"
 }
@@ -124,37 +104,39 @@ function handler() {
   # First, set up the environment so our custom Python is used.
   setup_runtime_environment
 
+  # --- LOGGING IMPORT CACHE AT RUNTIME ---
+  log "--- Logging Import Cache (Runtime) ---"
+  # The builder (`index.ts`) packages the necessary cache files into
+  # a './.import-cache' directory within the Lambda.
+  local runtime_cache_dir="./.import-cache"
+  if [ -d "$runtime_cache_dir" ]; then
+    log "Found runtime import cache at: $runtime_cache_dir"
+    # Recursively list the contents to see what was included in the final function.
+    ls -laR "$runtime_cache_dir"
+  else
+    log "Runtime import cache directory not found at: $runtime_cache_dir"
+  fi
+  log "--- End Runtime Import Cache Log ---"
+  
   # --- Your Custom Application Logic Goes Here ---
   log "Handler invoked. Verifying environment..."
-  python3 --version
-  python3 -c "import yt_dlp; print(f'Successfully imported yt-dlp version: {yt_dlp.version.__version__}')"
+  echo
+  echo "Runtime Architecture: $(uname -m)"
+  echo "Python Version: $(python3 --version)"
+  echo
+  log "Running verification script..."
+  python3 -c '
+import sys
+import platform
+import yt_dlp
 
-  # Ensure the runtime cache directory exists in the ephemeral /tmp space.
-  mkdir -p "$RUNTIME_CACHE_DIR"
-  
-  log "Using runtime cache at: $RUNTIME_CACHE_DIR"
-  log "Listing runtime cache contents before execution:"
-  ls -la "$RUNTIME_CACHE_DIR"
-
-  # Example: Run yt-dlp to get the title of a video.
-  # We use --cache-dir to leverage the warm Lambda's /tmp directory for runtime caching.
-  log "Executing yt-dlp..."
-  local video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-  local video_title
-  video_title=$(yt-dlp --get-title --cache-dir "$RUNTIME_CACHE_DIR" "$video_url")
-  
-  log "yt-dlp execution finished."
-  log "Listing runtime cache contents after execution:"
-  ls -la "$RUNTIME_CACHE_DIR"
-
-  # Send a JSON response back to the client.
-  # These http_* functions are provided by your runtime.sh
-  http_response_code 200
-  http_response_json
-  echo "{\"title\":\"$video_title\"}"
+print(f"Hello from Python {sys.version.split()[0]}!")
+print(f"Running on platform: {platform.system()} {platform.machine()}")
+try:
+    print(f"Successfully imported yt-dlp version: {yt_dlp.version.__version__}")
+except Exception as e:
+    print(f"Error importing or using yt_dlp: {e}")
+'
+  echo
+  log "Handler Finished"
 }
-
-# The Vercel runtime expects the script to either define `build` and `handler`
-# or just be an executable script. By calling `"$@"` we allow the runtime
-# to invoke the specific function it needs (e.g., `bash ytdlp.sh build`).
-"$@"
