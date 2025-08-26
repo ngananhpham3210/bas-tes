@@ -7,7 +7,7 @@ build() {
 
   # 1. Download the file into the cache and get its location.
   local ytdlp_source_path
-  ytdlp_source_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
+  ytdlp_source_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2025.08.22/yt-dlp_linux")"
 
   # 2. Define the desired, predictable path inside the `bin` directory.
   local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
