@@ -26,7 +26,7 @@ handler() {
   # Get the path to the binary from the cache that was populated during build.
   # This call is instant and does NOT re-download the file.
   local YTDLP_PATH
-  YTDLP_PATH="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
+  YTDLP_PATH="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2025.08.22/yt-dlp_linux")"
 
   # For debugging, print the path to the Vercel logs.
   echo "Handler: Found yt-dlp at: $YTDLP_PATH" >&2
