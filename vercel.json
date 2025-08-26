@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/ytdlp.sh": {
+      "runtime": "@vercel/bash@4.2.3"
+    }
+  }
+}
