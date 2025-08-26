@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # --- Configuration ---
-# We no longer need PYTHON_URL or PYTHON_DIR, as we're using the system's Python.
+readonly PYTHON_VERSION="3.11" # <-- CHANGED: Specify Python version here
 readonly DEPS_DIR="dependencies" # This folder will contain yt-dlp and its dependencies
 
 
@@ -14,8 +14,8 @@ log() {
   echo "--> $1"
 }
 
-# Logs the structure of the deployment directory (`.` at build time, `/var/task` at runtime).
-# It intelligently avoids deep recursion into the noisy 'dependencies' folder.
+# Logs the structure of the deployment directory.
+# Now excludes 'dependencies' but not 'python' since it no longer exists.
 log_deployment_structure() {
   local target_dir="$1"
   
@@ -27,15 +27,14 @@ log_deployment_structure() {
   echo
   echo "============================================================"
   echo "--- Structure of Deployment Directory: $target_dir"
-  echo "--- (Excluding contents of 'dependencies')"
+  echo "--- (Excluding contents of '$DEPS_DIR')"
   echo "============================================================"
   
   if command -v tree &> /dev/null; then
-    # PREFERRED METHOD: Use `tree` to show a clean hierarchy.
-    # We now only need to ignore the dependencies directory.
+    # Use `tree`, ignoring the large dependencies folder.
     tree -L 3 -I "$DEPS_DIR" "$target_dir"
   else
-    # FALLBACK METHOD: If `tree` is not installed, just list the top-level contents.
+    # Fallback to `ls`.
     log "NOTE: 'tree' command not found. Falling back to a non-recursive 'ls' listing."
     ls -la "$target_dir"
   fi
@@ -45,7 +44,7 @@ log_deployment_structure() {
   echo
 }
 
-# A separate function for a full, deep, recursive log, used only for the import-cache.
+# (log_directory_details_recursive remains the same)
 log_directory_details_recursive() {
   local target_dir="$1"
   if [ ! -d "$target_dir" ]; then
@@ -64,23 +63,19 @@ log_directory_details_recursive() {
 
 # --- Standard Setup Functions ---
 
-# --- REMOVED ---
-# The setup_python_runtime function is no longer needed.
+# <-- REMOVED: The old setup_python_runtime function is no longer needed.
 
 install_python_dependencies() {
   log "Installing Python dependencies..."
-  mkdir -p "$DEPS_DIR"
-  # --- CHANGED ---
-  # Use the system's `python3` and `pip` to install packages into our target directory.
-  # Using `python3 -m pip` is a best practice to ensure you're using the correct pip.
-  python3 -m pip install --target="$DEPS_DIR" yt-dlp
+  mkdir "$DEPS_DIR"
+  # <-- CHANGED: Use the system-installed python/pip, targeting the local deps dir.
+  "python${PYTHON_VERSION}" -m pip install --target="$DEPS_DIR" yt-dlp
   log "Dependencies installed successfully."
 }
 
 setup_runtime_environment() {
-  # --- CHANGED ---
-  # We no longer need to modify the PATH, as `python3` is already in the system PATH.
-  # We ONLY need to set PYTHONPATH so the interpreter can find our vendored dependencies.
+  # <-- CHANGED: We no longer need to modify the PATH for Python itself.
+  # The system Python will already be in the PATH. We only need to set PYTHONPATH.
   export PYTHONPATH="$PWD/$DEPS_DIR"
 }
 
@@ -90,15 +85,17 @@ setup_runtime_environment() {
 function build() {
   log "Build Step Started"
 
-  # --- NEW ---
-  # Install system-level tools needed for our build.
-  # Vercel's environment uses `yum`. We install pip and the tree utility.
-  # `python3-devel` is good practice in case any packages need to compile C extensions.
-  log "Installing system dependencies: python3-pip, python3-devel, tree..."
-  yum install -y python3-pip python3-devel tree
+  # --- INSTALL SYSTEM DEPENDENCIES ---
+  log "Updating package manager and installing system dependencies..."
+  # Use dnf to install tree (for logging) and Python itself.
+  dnf update -y
+  dnf install -y tree "python${PYTHON_VERSION}" "python${PYTHON_VERSION}-pip" # Install python and pip
+  log "System dependencies installed."
+
+  # Verify the installation
+  "python${PYTHON_VERSION}" --version
   
-  # --- CHANGED ---
-  # We now just call the dependency installer directly.
+  # Now install python packages using the system pip
   install_python_dependencies
   
   log "Logging Build Environment Details..."
@@ -124,9 +121,8 @@ function handler() {
 
   # --- Your Custom Application Logic Goes Here ---
   log "Handler invoked. Verifying yt-dlp installation..."
-  # This command now uses the system `python3` from the runtime environment.
-  # Because PYTHONPATH is set, it can import `yt_dlp` from the `dependencies` folder.
-  python3 -c '
+  # <-- CHANGED: Use the specific python version for consistency.
+  "python${PYTHON_VERSION}" -c '
 import sys
 import platform
 import yt_dlp
