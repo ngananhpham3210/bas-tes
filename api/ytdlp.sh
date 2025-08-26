@@ -1,9 +1,11 @@
 #!/bin/bash
 
 # Exit immediately if a command exits with a non-zero status.
+# This is a best practice for robust shell scripts.
 set -euo pipefail
 
 # --- Configuration ---
+# All settings are defined here for easy modification.
 readonly PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 readonly PYTHON_DIR="python"
 readonly DEPS_DIR="dependencies"
@@ -11,31 +13,34 @@ readonly DEPS_DIR="dependencies"
 
 # --- Helper Functions ---
 
+# A simple logging function for clear section headers.
 log() {
   echo "--> $1"
 }
 
-# Helper to display a directory tree, using `tree` if available, else `ls`.
-log_directory_tree() {
+# A detailed logging function that performs a deep, recursive list of a directory's contents.
+# This is crucial for inspecting the exact file structure and permissions.
+log_directory_details() {
   local target_dir="$1"
-  local depth_limit="${2:-2}" # Default depth limit for tree is 2
-
+  
+  # Check if the directory exists before attempting to list its contents.
   if [ ! -d "$target_dir" ]; then
-    log "Directory not found for logging: $target_dir"
+    log "Skipping log for non-existent directory: $target_dir"
     return
   fi
 
-  log "Listing contents of: $target_dir (depth limit: $depth_limit)"
-  if command -v tree &> /dev/null; then
-    # Use tree for a clean view, limit depth to avoid excessive output
-    tree -L "$depth_limit" "$target_dir"
-  else
-    # Fallback to ls for a recursive listing. Use find/ls to simulate depth.
-    find "$target_dir" -maxdepth "$depth_limit" -exec ls -ld {} +
-  fi
-  echo # Add a newline for better log separation
+  echo
+  echo "============================================================"
+  echo "--- Detailed Recursive Listing for: $target_dir"
+  echo "============================================================"
+  # Use `ls -laR` for a detailed, recursive listing including hidden files.
+  ls -laR "$target_dir"
+  echo "--- End of Listing for: $target_dir ---"
+  echo "============================================================"
+  echo
 }
 
+# Downloads, extracts, and prepares the standalone Python runtime.
 setup_python_runtime() {
   log "Setting up Python runtime..."
   local filename
@@ -56,6 +61,7 @@ setup_python_runtime() {
   log "Python runtime setup complete."
 }
 
+# Installs Python packages into the dedicated dependencies directory.
 install_python_dependencies() {
   log "Installing Python dependencies..."
   mkdir "$DEPS_DIR"
@@ -63,6 +69,7 @@ install_python_dependencies() {
   log "Dependencies installed successfully."
 }
 
+# Sets the necessary environment variables for our custom Python runtime.
 setup_runtime_environment() {
   export PATH="$PWD/$PYTHON_DIR/bin:$PATH"
   export PYTHONPATH="$PWD/$DEPS_DIR"
@@ -71,58 +78,60 @@ setup_runtime_environment() {
 
 # --- Vercel Build and Handler Functions ---
 
+#
+# build() runs ONCE during deployment to prepare the serverless function.
+#
 function build() {
   log "Build Step Started"
   setup_python_runtime
   install_python_dependencies
   
-  # --- LOGGING AT BUILD TIME ---
-  echo
-  log "--- Logging Relevant Build Environment Folders ---"
+  # --- DETAILED LOGGING AT BUILD TIME ---
+  log "Logging Build Environment Filesystem Details..."
   
-  # Log standard library/binary locations and the current build directory.
-  # Note: The build directory (`.`) is typically `/vercel/work`.
-  local build_dirs_to_log=("/usr" "/usr/local" ".")
-  for dir in "${build_dirs_to_log[@]}"; do
-    log_directory_tree "$dir" 2
-  done
+  # Define the specific directories relevant to the build environment.
+  # `/vercel/work` (or '.') is where our source and output files are.
+  # `/usr/local` and `/usr/include` are common locations for system libraries.
+  local build_dirs_to_log=("/usr/local" "/usr/include" ".")
 
-  # Log Import Cache
+  for dir in "${build_dirs_to_log[@]}"; do
+    log_directory_details "$dir"
+  done
+  
+  # Also log the import cache if it exists.
   if [[ -n "${IMPORT_CACHE-}" && -d "$IMPORT_CACHE" ]]; then
-    log_directory_tree "$IMPORT_CACHE" 4
-  else
-    log "Build-time import cache directory not found."
+    log_directory_details "$IMPORT_CACHE"
   fi
   
-  log "--- End Build Environment Details ---"
-  echo
+  log "Build Environment logging complete."
   log "Build Step Finished"
 }
 
+#
+# handler() runs for EVERY incoming request.
+#
 function handler() {
   setup_runtime_environment
 
-  # --- LOGGING AT RUNTIME ---
-  echo
-  log "--- Logging Relevant Runtime Environment Folders ---"
+  # --- DETAILED LOGGING AT RUNTIME ---
+  log "Logging Runtime Environment Filesystem Details..."
+  
+  # Define directories relevant to the AWS Lambda runtime.
+  # `/var/task` (or '.') is the root of our deployed function package.
+  # `/usr/local` and `/usr/include` show what system libs are available.
+  local runtime_dirs_to_log=("/var/task" "/usr/local" "/usr/include")
 
-  # Log standard library locations and the function's task directory.
-  # Note: The Lambda task directory (`/var/task`) is also the current working directory (`.`).
-  local runtime_dirs_to_log=("/usr" "/usr/local" "/var/task")
   for dir in "${runtime_dirs_to_log[@]}"; do
-    log_directory_tree "$dir" 2
+    log_directory_details "$dir"
   done
 
-  # Log Import Cache, which is packaged inside the function.
+  # The runtime import cache is located inside our function package.
   local runtime_cache_dir="./.import-cache"
   if [ -d "$runtime_cache_dir" ]; then
-    log_directory_tree "$runtime_cache_dir" 4
-  else
-    log "Runtime import cache directory not found."
+    log_directory_details "$runtime_cache_dir"
   fi
-
-  log "--- End Runtime Environment Details ---"
-  echo
+  
+  log "Runtime Environment logging complete."
 
   # --- Your Custom Application Logic Goes Here ---
   log "Handler invoked. Verifying yt-dlp installation..."
