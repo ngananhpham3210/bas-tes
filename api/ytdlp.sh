@@ -12,40 +12,38 @@ function build() {
   curl --retry 3 -L -o "$FILENAME" "$PYTHON_URL"
   echo "Download complete."
 
-  # The archive contains many symbolic links which cause errors in the Vercel builder.
-  # To fix this, we will perform a copy that dereferences all links.
-  # -R = recursive
-  # -L = dereference (follow) all symbolic links
-
-  # Step 1: Extract the archive. This will create a 'python' directory.
+  # Step 1: Extract the archive.
   echo "Extracting $FILENAME..."
   tar -xzf "$FILENAME"
 
-  # Step 2: Create a new, clean directory for the final output.
+  # Step 2: Create a new, clean directory.
   mkdir python_final
 
   # Step 3: Copy from the extracted dir to the final dir, resolving all symlinks.
   echo "Copying and resolving symlinks to create a clean build output..."
   cp -RL python/* python_final/
 
-  # Step 4: Clean up the original extracted directory and the archive.
+  # Step 4: Clean up the intermediate files.
   echo "Cleaning up intermediate files..."
   rm -rf python
   rm "$FILENAME"
 
-  # Step 5: Rename the clean directory to 'python' so the handler can find it.
+  # Step 5: Rename the clean directory to 'python'.
   mv python_final python
+
+  # --- FIX: Add execute permissions to all files in the python/bin directory ---
+  echo "Setting execute permissions on Python binaries..."
+  chmod -R +x python/bin
+  # -----------------------------------------------------------------------------
 
   echo "--- Python Build Step Finished ---"
 }
 
-# This function runs for every incoming request in the AWS Lambda environment.
-# It does not need to be changed.
+# This function runs for every incoming request.
+# No changes are needed here.
 function handler() {
-  # Add the `python/bin` directory (created during the build step) to the PATH.
+  # Add the `python/bin` directory to the PATH.
   export PATH="$PWD/python/bin:$PATH"
-
-  # --- Your Python logic goes here ---
 
   # Example: Check the Python version
   echo "Checking Python version:"
