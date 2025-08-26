@@ -10,7 +10,7 @@ build() {
 
   # 2. Download and extract a portable Python directly into our directory.
   echo "Downloading and extracting standalone Python..."
-  local python_url="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.13.7+20250818-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+  local python_url="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
   local python_tarball
   python_tarball="$(import_file "$python_url")"
   tar -xzf "$python_tarball" -C "$INSTALL_DIR" --strip-components=1
