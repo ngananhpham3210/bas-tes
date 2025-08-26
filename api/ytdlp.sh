@@ -21,18 +21,19 @@ log_directory_tree() {
   local depth_limit="${2:-2}" # Default depth limit for tree is 2
 
   if [ ! -d "$target_dir" ]; then
-    log "Directory not found: $target_dir"
+    log "Directory not found for logging: $target_dir"
     return
   fi
 
-  log "Listing contents of: $target_dir"
+  log "Listing contents of: $target_dir (depth limit: $depth_limit)"
   if command -v tree &> /dev/null; then
     # Use tree for a clean view, limit depth to avoid excessive output
     tree -L "$depth_limit" "$target_dir"
   else
-    # Fallback to ls for a recursive, detailed listing
-    ls -laR "$target_dir"
+    # Fallback to ls for a recursive listing. Use find/ls to simulate depth.
+    find "$target_dir" -maxdepth "$depth_limit" -exec ls -ld {} +
   fi
+  echo # Add a newline for better log separation
 }
 
 setup_python_runtime() {
@@ -77,17 +78,20 @@ function build() {
   
   # --- LOGGING AT BUILD TIME ---
   echo
-  log "--- Logging Build Environment Details ---"
+  log "--- Logging Relevant Build Environment Folders ---"
   
-  # 1. Log System Folder Structure
-  log_directory_tree "/" 1 # Show top-level root directories
-  log_directory_tree "." 3 # Show a deeper view of the current build directory
+  # Log standard library/binary locations and the current build directory.
+  # Note: The build directory (`.`) is typically `/vercel/work`.
+  local build_dirs_to_log=("/usr" "/usr/local" ".")
+  for dir in "${build_dirs_to_log[@]}"; do
+    log_directory_tree "$dir" 2
+  done
 
-  # 2. Log Import Cache
+  # Log Import Cache
   if [[ -n "${IMPORT_CACHE-}" && -d "$IMPORT_CACHE" ]]; then
     log_directory_tree "$IMPORT_CACHE" 4
   else
-    log "Build-time import cache directory not found or IMPORT_CACHE is not set."
+    log "Build-time import cache directory not found."
   fi
   
   log "--- End Build Environment Details ---"
@@ -100,19 +104,21 @@ function handler() {
 
   # --- LOGGING AT RUNTIME ---
   echo
-  log "--- Logging Runtime Environment Details ---"
+  log "--- Logging Relevant Runtime Environment Folders ---"
 
-  # 1. Log System Folder Structure
-  # The Lambda root is '/', and our code is in the current directory (`pwd`), which is /var/task
-  log_directory_tree "/" 1 # Show top-level root directories
-  log_directory_tree "." 3 # Show the contents of the deployed function package (/var/task)
+  # Log standard library locations and the function's task directory.
+  # Note: The Lambda task directory (`/var/task`) is also the current working directory (`.`).
+  local runtime_dirs_to_log=("/usr" "/usr/local" "/var/task")
+  for dir in "${runtime_dirs_to_log[@]}"; do
+    log_directory_tree "$dir" 2
+  done
 
-  # 2. Log Import Cache
+  # Log Import Cache, which is packaged inside the function.
   local runtime_cache_dir="./.import-cache"
   if [ -d "$runtime_cache_dir" ]; then
     log_directory_tree "$runtime_cache_dir" 4
   else
-    log "Runtime import cache directory not found at: $runtime_cache_dir"
+    log "Runtime import cache directory not found."
   fi
 
   log "--- End Runtime Environment Details ---"
