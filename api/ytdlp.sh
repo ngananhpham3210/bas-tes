@@ -12,20 +12,19 @@ function build() {
   PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
   PYTHON_DIR=".import-cache/python"
 
-  # 2. Create the target directory
+  # 2. Create the target directory for Python extraction
   mkdir -p "$PYTHON_DIR"
 
   # 3. Download and extract the archive in one step
-  # - `curl -L`: Downloads the file, following redirects.
-  # - `tar zxvf -`: Extracts the gzipped tar archive from standard input (-).
-  # - `-C "$PYTHON_DIR"`: Extracts the files into our target directory.
-  # - `--strip-components=1`: Removes the top-level directory (e.g., `python/`) from the archive.
   echo "Downloading and extracting Python from $PYTHON_URL"
   curl -L "$PYTHON_URL" | tar zxvf - -C "$PYTHON_DIR" --strip-components=1
 
-  # 4. (Optional but Recommended) Symlink the python executable to the bin directory
-  # The bootstrap script adds .import-cache/bin to the PATH.
-  # This makes `python3` directly available in your handler.
+  # 4. (FIX) Ensure the target directory for the symlink exists
+  # This directory is not created by the builder until AFTER this script runs.
+  mkdir -p ".import-cache/bin"
+
+  # 5. Symlink the python executable to the bin directory
+  # This makes `python3` directly available in your handler's PATH.
   ln -s "../python/bin/python3" ".import-cache/bin/python3"
   
   echo "--- Python installation complete ---"
