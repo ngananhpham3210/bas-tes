@@ -19,9 +19,15 @@ build() {
   echo "Installing yt-dlp..."
   "$INSTALL_DIR/bin/python3" -m pip install yt-dlp
 
-  # 3. THE FIX: Remove unnecessary config symlinks that cause packaging errors.
-  echo "Removing problematic config scripts..."
-  rm -f "$INSTALL_DIR/bin/python*-config"
+  # 3. THE FIX: Aggressively remove all non-essential files and symlinks
+  # from the bin directory. These files cause Vercel's packager to fail.
+  echo "Cleaning up build-time tools to prevent packaging errors..."
+  rm -f "$INSTALL_DIR"/bin/pip*
+  rm -f "$INSTALL_DIR"/bin/python*-config
+  # The 'python3' symlink pointing to the binary is often the cause of the 'ELF' error.
+  # The yt-dlp script will use the real binary (e.g., python3.11), so this symlink is not needed at runtime.
+  rm -f "$INSTALL_DIR"/bin/python
+  rm -f "$INSTALL_DIR"/bin/python3
 
   echo "--- Build complete. Environment is bundled and cleaned. ---"
 }
