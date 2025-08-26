@@ -6,23 +6,24 @@ build() {
   echo "Downloading yt-dlp binary..."
 
   # 1. Download the file into the cache and get its location.
-  #    The returned path will be something like:
-  #    .../links/https/github.com/.../yt-dlp_linux
   local ytdlp_source_path
   ytdlp_source_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
 
   # 2. Make the downloaded file executable.
   chmod +x "$ytdlp_source_path"
 
-  # 3. Define the desired, predictable path inside the `bin` directory.
+  # 3. THE FIX: Ensure the bin directory exists before we create a symlink inside it.
+  mkdir -p "$IMPORT_CACHE/bin"
+
+  # 4. Define the desired, predictable path inside the `bin` directory.
   local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
 
-  # 4. Create a symbolic link from the desired path to the actual cached file.
+  # 5. Create a symbolic link from the desired path to the actual cached file.
   ln -s "$ytdlp_source_path" "$ytdlp_bin_path"
 
   echo "Build complete. Symlink created for yt-dlp in the bin directory."
 
-  # 5. List the contents of the bin directory to verify in the build logs.
+  # 6. List the contents of the bin directory to verify in the build logs.
   echo "Final contents of '$IMPORT_CACHE/bin':"
   ls -l "$IMPORT_CACHE/bin"
   echo "--- End Build Phase ---"
