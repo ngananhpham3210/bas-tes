@@ -1,53 +1,41 @@
 #!/bin/bash
 
 # The `build` function runs once at deploy time to prepare the environment.
+# Its job is to download dependencies and make them available for the handler.
 build() {
-  echo "--- Build Phase ---"
-  echo "Downloading yt-dlp binary..."
+  echo "--- Build: Downloading yt-dlp binary ---"
 
-  # 1. Download the file into the cache and get its location.
+  # 1. Download the file into the cache and get its source location.
   local ytdlp_source_path
   ytdlp_source_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
 
   # 2. Make the downloaded file executable.
   chmod +x "$ytdlp_source_path"
 
-  # 3. THE FIX: Ensure the bin directory exists before we create a symlink inside it.
+  # 3. Ensure the bin directory exists inside the cache.
   mkdir -p "$IMPORT_CACHE/bin"
 
-  # 4. Define the desired, predictable path inside the `bin` directory.
-  local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
+  # 4. Create a symlink in the `bin` directory for a predictable path.
+  #    This allows us to easily find it at runtime without calling import_file again.
+  ln -s "$ytdlp_source_path" "$IMPORT_CACHE/bin/yt-dlp"
 
-  # 5. Create a symbolic link from the desired path to the actual cached file.
-  ln -s "$ytdlp_source_path" "$ytdlp_bin_path"
-
-  echo "Build complete. Symlink created for yt-dlp in the bin directory."
-
-  # 6. List the contents of the bin directory to verify in the build logs.
-  echo "Final contents of '$IMPORT_CACHE/bin':"
-  ls -l "$IMPORT_CACHE/bin"
-  echo "--- End Build Phase ---"
+  echo "--- Build: Complete. yt-dlp is ready. ---"
 }
 
-# The `handler` function runs on every request.
+# The `handler` function runs on every incoming HTTP request.
 handler() {
-  # Let the client know we are sending back plain text
+  # Set the content type to plain text for the response.
   http_response_header "Content-Type" "text/plain"
 
   # The path to our binary is now fixed and predictable because of our build step.
   local YTDLP_PATH="$IMPORT_CACHE/bin/yt-dlp"
 
-  # For debugging, let's list the bin directory again at runtime.
-  echo "--- Handler: Listing '$IMPORT_CACHE/bin' directory ---" >&2
-  ls -l "$IMPORT_CACHE/bin" >&2
-  echo "--- End of listing ---" >&2
-
-  # Check if the file exists and is executable before running it
+  # Check if the file exists and is executable before trying to run it.
   if [ -x "$YTDLP_PATH" ]; then
-    # Execute the binary. Its output is the HTTP response body.
+    # Execute the binary and return its version as the HTTP response body.
     "$YTDLP_PATH" --version
   else
-    # If something went wrong, send an error response.
+    # If something went wrong, send a server error response.
     http_response_code 500
     echo "Error: yt-dlp binary not found or not executable at '$YTDLP_PATH'."
   fi
