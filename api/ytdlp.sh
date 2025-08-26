@@ -5,42 +5,54 @@ set -euo pipefail
 function build() {
   echo "--- Python Build Step ---"
 
-  # Define the URL and the filename for the Python distribution
   PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
   FILENAME=$(basename "$PYTHON_URL")
 
-  # Download the archive. The `curl` command is available in the build env.
   echo "Downloading Python from $PYTHON_URL..."
   curl --retry 3 -L -o "$FILENAME" "$PYTHON_URL"
   echo "Download complete."
 
-  # Extract the contents, dereferencing symlinks to create hard copies.
-  # This avoids issues with the Vercel builder's handling of symlinks.
-  echo "Extracting $FILENAME..."
-  tar --dereference -xzf "$FILENAME"
-  echo "Extraction complete."
+  # The archive contains many symbolic links which cause errors in the Vercel builder.
+  # To fix this, we will perform a copy that dereferences all links.
+  # -R = recursive
+  # -L = dereference (follow) all symbolic links
 
-  # Clean up the downloaded archive to keep the Lambda size small
+  # Step 1: Extract the archive. This will create a 'python' directory.
+  echo "Extracting $FILENAME..."
+  tar -xzf "$FILENAME"
+
+  # Step 2: Create a new, clean directory for the final output.
+  mkdir python_final
+
+  # Step 3: Copy from the extracted dir to the final dir, resolving all symlinks.
+  echo "Copying and resolving symlinks to create a clean build output..."
+  cp -RL python/* python_final/
+
+  # Step 4: Clean up the original extracted directory and the archive.
+  echo "Cleaning up intermediate files..."
+  rm -rf python
   rm "$FILENAME"
-  echo "Cleaned up archive."
+
+  # Step 5: Rename the clean directory to 'python' so the handler can find it.
+  mv python_final python
 
   echo "--- Python Build Step Finished ---"
 }
 
 # This function runs for every incoming request in the AWS Lambda environment.
+# It does not need to be changed.
 function handler() {
   # Add the `python/bin` directory (created during the build step) to the PATH.
-  # This makes the `python3` executable available to this script.
   export PATH="$PWD/python/bin:$PATH"
 
   # --- Your Python logic goes here ---
 
-  # Example 1: Check the Python version
-  echo "Checking Python version..."
+  # Example: Check the Python version
+  echo "Checking Python version:"
   python3 --version
-  echo ""
+  echo
 
-  # Example 2: Run a simple inline Python script
+  # Example: Run an inline Python script
   echo "Running an inline Python script:"
   python3 -c '
 import sys
