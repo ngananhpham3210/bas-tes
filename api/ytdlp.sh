@@ -22,9 +22,46 @@ log() {
   echo "--> $1"
 }
 
+# --- NEW: Function to inspect the import cache at build-time ---
+log_build_cache_info() {
+  log "Inspecting Build-Time Import Cache..."
+  # The IMPORT_CACHE env var usually points to the cache directory.
+  # We fall back to the known path if the variable isn't set.
+  local cache_dir="${IMPORT_CACHE:-/vercel/work/.vercel/cache/bash}"
+
+  if [ -d "$cache_dir" ]; then
+    echo "Cache directory found at: $cache_dir"
+    echo "--- Cache Contents (Build Time) ---"
+    # Recursively list the contents to show the structure.
+    ls -lR "$cache_dir"
+    echo "-----------------------------------"
+  else
+    echo "Build-time import cache directory not found at $cache_dir."
+  fi
+  echo
+}
+
+# --- NEW: Function to inspect the import cache at runtime ---
+log_runtime_cache_info() {
+  log "Inspecting Runtime Import Cache..."
+  # At runtime, the cache is packaged into the function at this relative path.
+  local cache_dir="./.import-cache"
+  
+  if [ -d "$cache_dir" ]; then
+    echo "Cache directory found at: $cache_dir"
+    echo "--- Cache Contents (Runtime) ---"
+    # Recursively list the contents.
+    ls -lR "$cache_dir"
+    echo "--------------------------------"
+  else
+    echo "Runtime import cache directory not found at $cache_dir."
+  fi
+  echo
+}
+
 # Downloads, extracts, and prepares the standalone Python runtime.
-# This function encapsulates all the logic for setting up Python itself.
 setup_python_runtime() {
+  # (This function is unchanged from the previous version)
   log "Setting up Python runtime..."
   local filename
   filename=$(basename "$PYTHON_URL")
@@ -32,13 +69,11 @@ setup_python_runtime() {
   log "Downloading Python from $PYTHON_URL"
   curl --retry 3 -L -o "$filename" "$PYTHON_URL"
 
-  # The archive contains symlinks which can cause issues. We extract and then
-  # perform a deep copy (-L) to resolve all symlinks into actual files.
   log "Extracting and resolving symlinks..."
   local temp_extract_dir="python_temp_extracted"
-  tar -xzf "$filename" -C . # Extract to current dir, creates 'python' folder
-  mv "$PYTHON_DIR" "$temp_extract_dir" # Rename to avoid conflict
-  mkdir "$PYTHON_DIR" # Create the final clean directory
+  tar -xzf "$filename" -C .
+  mv "$PYTHON_DIR" "$temp_extract_dir"
+  mkdir "$PYTHON_DIR"
   cp -RL "$temp_extract_dir"/* "$PYTHON_DIR"/
 
   log "Setting execute permissions on Python binaries..."
@@ -53,24 +88,17 @@ setup_python_runtime() {
 
 # Installs Python packages into the dedicated dependencies directory.
 install_python_dependencies() {
+  # (This function is unchanged)
   log "Installing Python dependencies..."
   mkdir "$DEPS_DIR"
-  
-  # Use the specific pip from our downloaded Python to install packages.
-  # The --target flag installs them into a local directory, not a system path.
   "$PYTHON_DIR/bin/pip" install --target="$DEPS_DIR" yt-dlp
-  
   log "Dependencies installed successfully."
 }
 
 # Sets the necessary environment variables for our custom Python runtime.
 setup_runtime_environment() {
-  # Add our custom Python's `bin` directory to the PATH.
-  # This makes commands like `python3` and `pip` use our version.
+  # (This function is unchanged)
   export PATH="$PWD/$PYTHON_DIR/bin:$PATH"
-
-  # Add our dependencies directory to Python's module search path.
-  # This allows `import yt_dlp` to work.
   export PYTHONPATH="$PWD/$DEPS_DIR"
 }
 
@@ -79,10 +107,13 @@ setup_runtime_environment() {
 
 #
 # build() runs ONCE during deployment to prepare the serverless function.
-# It orchestrates the setup of the Python runtime and dependencies.
 #
 function build() {
   log "Build Step Started"
+  
+  # --- ADDED CALL ---
+  log_build_cache_info
+  
   setup_python_runtime
   install_python_dependencies
   log "Build Step Finished"
@@ -95,11 +126,11 @@ function handler() {
   # First, set up the environment so our custom Python is used.
   setup_runtime_environment
 
-  # --- Your Custom Application Logic Goes Here ---
-  # The environment is now ready. You can execute any Python script.
+  # --- ADDED CALL ---
+  log_runtime_cache_info
 
-  log "Handler invoked. Verifying environment..."
-  echo
+  # --- Your Custom Application Logic Goes Here ---
+  log "Handler invoked. Verifying Python environment..."
   echo "Runtime Architecture: $(uname -m)"
   echo "Python Version: $(python3 --version)"
   echo
