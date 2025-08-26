@@ -1,34 +1,50 @@
-# In your api/index.sh or other entrypoint
+# FILE: api/index.sh
+#!/bin/bash
+set -euo pipefail
 
+# This `build` function runs once during `vercel build`
 function build() {
-  echo "--- Build Step Started ---"
+  echo "--- Installing Standalone Python 3.12 ---"
+
+  # 1. Define the URL and the target directory inside the Lambda
   local PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
+  
+  # This will become /var/task/.import-cache/python at runtime
+  local TARGET_DIR=".import-cache/python"
 
-  # 1. DOWNLOAD the asset to the current directory.
-  # This directory is the root of your final Lambda package.
-  echo "Downloading Python standalone build..."
-  curl -sfL -o python-standalone.tar.gz "$PYTHON_URL"
-  echo "Download complete."
+  # 2. Create the target directory
+  # The `.` refers to the build output directory
+  mkdir -p "$TARGET_DIR"
 
-  # 2. EXTRACT the asset into a subdirectory, also in the current directory.
-  echo "Extracting Python..."
-  mkdir -p python
-  tar -xzf ./python-standalone.tar.gz -C ./python --strip-components=1
-  echo "Extraction complete."
+  # 3. Download and extract the archive in one step
+  #    - `curl -Ls`: Download, follow redirects (-L), and be silent (-s)
+  #    - `tar -xz`: Extract (-x) from a gzipped (-z) archive
+  #    - `-C "$TARGET_DIR"`: Extract into our target directory
+  #    - `--strip-components=1`: Remove the top-level directory (e.g., `python/`) from the archive
+  echo "Downloading and extracting Python..."
+  curl -Ls "$PYTHON_URL" | tar -xz -C "$TARGET_DIR" --strip-components=1
 
-  # 3. CLEAN UP the temporary archive.
-  rm python-standalone.tar.gz
-
-  # At this point, you have a `python/` directory in the build output.
-  # The builder will automatically package it.
-  echo "--- Build Step Finished ---"
+  echo "--- Python installation complete ---"
 }
 
+# This `handler` function runs on every invocation of the Lambda
 function handler() {
-  # The path is relative to the root of the Lambda package.
-  RESPONSE=$(./python/bin/python3 -c "import sys; print(f'Hello from Python {sys.version}!')")
+  # At runtime, our python binary is now available at this relative path
+  local PYTHON_BIN="./.import-cache/python/bin/python3"
 
-  http_response_code 200
-  http_response_header "Content-Type" "text/plain"
-  echo "$RESPONSE"
+  # Let's execute it to prove it works
+  echo "Checking installed Python version:"
+  $PYTHON_BIN --version
+  
+  echo "" # Newline for cleaner logs
+
+  # You can now run any Python script you want
+  echo "Running an inline Python script:"
+  $PYTHON_BIN -c '
+import os
+import sys
+
+print(f"Hello from Python {sys.version}!")
+print(f"Running in directory: {os.getcwd()}")
+'
 }
