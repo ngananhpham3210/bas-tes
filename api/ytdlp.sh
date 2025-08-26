@@ -7,13 +7,10 @@ set -euo pipefail
 readonly PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 
 # --- Directory Naming ---
-# Name of the directory for the Python runtime inside the cache AND the final lambda output
 readonly PYTHON_DIR="python"
-# Name of the directory for pip dependencies in the final lambda output
 readonly DEPS_DIR="dependencies"
 
 # --- Dynamic Paths (from Vercel Builder) ---
-# The location within the Vercel cache where we will store Python between builds.
 readonly PYTHON_CACHE_DIR="${IMPORT_CACHE}/${PYTHON_DIR}"
 
 
@@ -52,9 +49,11 @@ log_directory_details_recursive() {
 # --- Standard Setup Functions ---
 
 setup_runtime_environment() {
-  # At runtime, the directories we created in the build output (`.` at build time)
-  # will be at the root of the Lambda task (`/var/task`).
-  export PATH="/var/task/$PYTHON_DIR/bin:$PATH"
+  # At runtime, we need to add three locations to our environment:
+  # 1. The .import-cache/bin directory for executables like yt-dlp, curl, jq.
+  # 2. The python/bin directory for the python interpreter itself.
+  # 3. The dependencies directory for Python's import path.
+  export PATH="/var/task/.import-cache/bin:/var/task/$PYTHON_DIR/bin:$PATH"
   export PYTHONPATH="/var/task/$DEPS_DIR"
 }
 
@@ -66,7 +65,6 @@ function build() {
   log "Build output directory is: $PWD"
   log "Vercel cache directory is: $IMPORT_CACHE"
 
-  # Install `tree` for better logging during the build
   dnf install -y tree
 
   # --- Step 1: Ensure Python is in the Vercel Cache ---
@@ -78,29 +76,33 @@ function build() {
     local filename; filename=$(basename "$PYTHON_URL")
     mkdir -p "$PYTHON_CACHE_DIR"
     curl --retry 3 -L -o "$filename" "$PYTHON_URL"
-    # --strip-components=1 removes the top-level folder from the tarball
     tar -xzf "$filename" -C "$PYTHON_CACHE_DIR" --strip-components=1
     rm "$filename"
     log "Python has been cached successfully."
   fi
 
   # --- Step 2: Copy Python from Cache to the Build Output Directory ---
-  # This is the crucial step. Anything in the current directory ($PWD) gets packaged.
-  log "Copying Python runtime from cache to build output directory..."
-  cp -R "$PYTHON_CACHE_DIR" "./$PYTHON_DIR"
+  log "Copying Python runtime from cache to build output, dereferencing symlinks..."
+  cp -RL "$PYTHON_CACHE_DIR" "./$PYTHON_DIR"
   log "Python copied to ./$PYTHON_DIR"
 
-  # --- Step 3: Install Dependencies directly into the Build Output Directory ---
+  # --- Step 3: Install Dependencies ---
   log "Installing Python dependencies into ./$DEPS_DIR..."
-  # Use the Python executable we just copied into the output directory
   "./$PYTHON_DIR/bin/pip" install --target="./$DEPS_DIR" yt-dlp
   log "Dependencies installed successfully."
+
+  # --- Step 4: Move yt-dlp executable to .import-cache/bin ---
+  # This makes it a globally available command in our runtime.
+  log "Moving yt-dlp executable to .import-cache/bin..."
+  # The builder (`index.ts`) creates `.import-cache` but not necessarily `bin`, so we ensure it exists.
+  mkdir -p "./.import-cache/bin"
+  mv "./$DEPS_DIR/bin/yt-dlp" "./.import-cache/bin/"
+  chmod +x "./.import-cache/bin/yt-dlp" # Ensure it's executable
+  log "yt-dlp executable moved successfully."
   
   log "Logging Final Build Environment Details..."
-  # Log the structure of the build output directory (`.`) which becomes `/var/task`
   log_deployment_structure "."
-  # Log the full contents of the cache for debugging
-  log_directory_details_recursive "$IMPORT_CACHE"
+  log_directory_details_recursive "./.import-cache"
   
   log "Build Step Finished"
 }
@@ -110,23 +112,20 @@ function handler() {
 
   log "Logging Runtime Environment Details..."
   log_deployment_structure "/var/task"
+  log_directory_details_recursive "/var/task/.import-cache"
 
   # --- Your Custom Application Logic Goes Here ---
-  log "Handler invoked. Verifying yt-dlp installation..."
-  python3 -c '
-import sys
-import os
-import platform
-import yt_dlp
+  # Now we can call yt-dlp directly as a command.
+  log "Handler invoked. Verifying yt-dlp executable..."
+  
+  log "--- Verifying PATH ---"
+  echo "$PATH"
+  
+  log "--- Finding yt-dlp executable ---"
+  which yt-dlp
 
-print(f"Hello from Python {sys.version.split()[0]}!")
-print(f"Python executable: {sys.executable}")
-print(f"PATH: {os.environ.get(\"PATH\")}")
-print(f"PYTHONPATH: {os.environ.get(\"PYTHONPATH\")}")
-try:
-    print(f"Successfully imported yt-dlp version: {yt_dlp.version.__version__}")
-except Exception as e:
-    print(f"Error importing or using yt_dlp: {e}")
-'
+  log "--- Executing yt-dlp --version ---"
+  yt-dlp --version
+
   log "Handler Finished"
 }
