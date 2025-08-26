@@ -1,42 +1,54 @@
 #!/bin/bash
+set -euo pipefail
 
-# ===================================================================
-# BUILD FUNCTION
-# ===================================================================
+# This function runs during the Vercel build process.
+# Its job is to download the standalone Python distribution and extract it.
+# The resulting `python` directory will be included in the Lambda package.
 function build() {
-  echo "--- Building: Installing Standalone Python ---"
+  echo "--- Python Build Step ---"
 
-  # 1. Define URLs and paths
+  # Define the URL and the filename for the Python distribution
   PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64_v4-unknown-linux-gnu-install_only_stripped.tar.gz"
-  PYTHON_DIR=".import-cache/python-3.12"
+  FILENAME=$(basename "$PYTHON_URL")
 
-  # 2. Create the target directory and extract Python
-  mkdir -p "$PYTHON_DIR"
-  echo "Downloading and extracting Python from $PYTHON_URL"
-  curl -L "$PYTHON_URL" | tar zxvf - -C "$PYTHON_DIR" --strip-components=1
+  # Download the archive. The `curl` command is available in the build env.
+  echo "Downloading Python from $PYTHON_URL..."
+  curl --retry 3 -L -o "$FILENAME" "$PYTHON_URL"
+  echo "Download complete."
 
-  # 3. (FIX) Modify runtime.sh to prepend the Python bin directory to the PATH.
-  # We use careful quoting to ensure $LAMBDA_TASK_ROOT is NOT expanded at build time,
-  # but $PYTHON_DIR IS expanded.
-  # '...' -> Literal string
-  # "..." -> Allows variable expansion
-  sed -i '2 a\
-export PATH="$LAMBDA_TASK_ROOT/'"$PYTHON_DIR"'/bin:$PATH"\
-' ".import-cache/runtime.sh"
+  # Extract the contents. This will create a `python` directory.
+  echo "Extracting $FILENAME..."
+  tar -xzf "$FILENAME"
+  echo "Extraction complete."
 
-  echo "--- Python installation complete ---"
+  # Clean up the downloaded archive to keep the Lambda size small
+  rm "$FILENAME"
+  echo "Cleaned up archive."
+
+  echo "--- Python Build Step Finished ---"
 }
 
-
-# ===================================================================
-# HANDLER FUNCTION
-# ===================================================================
+# This function runs for every incoming request in the AWS Lambda environment.
 function handler() {
-  # Now python, yt-dlp, etc. are all directly available!
-  local python_version
-  python_version=$(python3 --version)
+  # Add the `python/bin` directory (created during the build step) to the PATH.
+  # This makes the `python3` executable available to this script.
+  # $LAMBDA_TASK_ROOT is the current directory, so we can use a relative path.
+  export PATH="$PWD/python/bin:$PATH"
 
-  http_response_header "Content-Type" "text/plain"
-  echo "Hello from Bash!"
-  echo "Python is available: $python_version"
+  # --- Your Python logic goes here ---
+
+  # Example 1: Check the Python version
+  echo "Checking Python version..."
+  python3 --version
+  echo ""
+
+  # Example 2: Run a simple inline Python script
+  echo "Running an inline Python script:"
+  python3 -c '
+import sys
+import platform
+
+print(f"Hello from Python {sys.version}!")
+print(f"Running on platform: {platform.system()} {platform.machine()}")
+'
 }
