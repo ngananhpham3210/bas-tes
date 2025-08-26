@@ -12,14 +12,16 @@ build() {
   # 2. Make the downloaded file executable.
   chmod +x "$ytdlp_source_path"
 
-  # 3. Ensure the bin directory exists before we create a symlink inside it.
+  # 3. Ensure the bin directory exists.
   mkdir -p "$IMPORT_CACHE/bin"
 
   # 4. Define the desired, predictable path inside the `bin` directory.
   local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
 
-  # 5. Create a symbolic link from the desired path to the actual cached file.
-  ln -s "$ytdlp_source_path" "$ytdlp_bin_path"
+  # 5. THE FIX: Use `ln -sf` to force overwrite the symlink if it exists.
+  #    -s: symbolic link
+  #    -f: force (remove existing destination files)
+  ln -sf "$ytdlp_source_path" "$ytdlp_bin_path"
 
   echo "Build complete. Symlink created for yt-dlp in the bin directory."
   echo "--- End Build Phase ---"
@@ -35,14 +37,12 @@ handler() {
 
   # Check if the file exists and is executable.
   if [ -x "$YTDLP_PATH" ]; then
-    # --- THIS IS THE MODIFIED PART ---
-    # 1. Execute the command and capture its output into a variable.
+    # Execute the command and capture its output into a variable.
     local ytdlp_version
     ytdlp_version=$("$YTDLP_PATH" --version)
 
-    # 2. Use echo to format the final HTTP response body.
+    # Use echo to format the final HTTP response body.
     echo "Hello from Vercel! The yt-dlp version is: $ytdlp_version"
-    # --- END OF MODIFICATION ---
   else
     # If something went wrong, send an error response.
     http_response_code 500
