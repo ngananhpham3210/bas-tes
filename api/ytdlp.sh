@@ -1,35 +1,45 @@
 #!/bin/bash
 
-# The `build` function runs once at deploy time.
-# Its job is to download dependencies and place them in the import cache.
+# The `build` function runs once at deploy time to prepare the environment.
 build() {
   echo "--- Build Phase ---"
-  echo "Downloading and caching yt-dlp binary..."
+  echo "Downloading yt-dlp binary..."
 
-  # Download the file. It will be stored in the cache.
-  local ytdlp_build_path
-  ytdlp_build_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2025.08.22/yt-dlp_linux")"
+  # 1. Download the file into the cache and get its location.
+  #    The returned path will be something like:
+  #    .../links/https/github.com/.../yt-dlp_linux
+  local ytdlp_source_path
+  ytdlp_source_path="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2023.12.30/yt-dlp_linux")"
 
-  # Make it executable. File permissions are preserved in the final Lambda package.
-  chmod +x "$ytdlp_build_path"
+  # 2. Make the downloaded file executable.
+  chmod +x "$ytdlp_source_path"
 
-  echo "Build complete. yt-dlp is cached and executable."
+  # 3. Define the desired, predictable path inside the `bin` directory.
+  local ytdlp_bin_path="$IMPORT_CACHE/bin/yt-dlp"
+
+  # 4. Create a symbolic link from the desired path to the actual cached file.
+  ln -s "$ytdlp_source_path" "$ytdlp_bin_path"
+
+  echo "Build complete. Symlink created for yt-dlp in the bin directory."
+
+  # 5. List the contents of the bin directory to verify in the build logs.
+  echo "Final contents of '$IMPORT_CACHE/bin':"
+  ls -l "$IMPORT_CACHE/bin"
   echo "--- End Build Phase ---"
 }
 
 # The `handler` function runs on every request.
-# Its job is to handle the request and produce a response.
 handler() {
   # Let the client know we are sending back plain text
   http_response_header "Content-Type" "text/plain"
 
-  # Get the path to the binary from the cache that was populated during build.
-  # This call is instant and does NOT re-download the file.
-  local YTDLP_PATH
-  YTDLP_PATH="$(import_file "https://github.com/yt-dlp/yt-dlp/releases/download/2025.08.22/yt-dlp_linux")"
+  # The path to our binary is now fixed and predictable because of our build step.
+  local YTDLP_PATH="$IMPORT_CACHE/bin/yt-dlp"
 
-  # For debugging, print the path to the Vercel logs.
-  echo "Handler: Found yt-dlp at: $YTDLP_PATH" >&2
+  # For debugging, let's list the bin directory again at runtime.
+  echo "--- Handler: Listing '$IMPORT_CACHE/bin' directory ---" >&2
+  ls -l "$IMPORT_CACHE/bin" >&2
+  echo "--- End of listing ---" >&2
 
   # Check if the file exists and is executable before running it
   if [ -x "$YTDLP_PATH" ]; then
@@ -38,6 +48,6 @@ handler() {
   else
     # If something went wrong, send an error response.
     http_response_code 500
-    echo "Error: yt-dlp binary not found or not executable at runtime."
+    echo "Error: yt-dlp binary not found or not executable at '$YTDLP_PATH'."
   fi
 }
