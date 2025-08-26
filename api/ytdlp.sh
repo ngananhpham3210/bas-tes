@@ -14,7 +14,7 @@ function build() {
   # The URL for the standalone Python build.
   # CRITICAL: This version is specifically for aarch64 (ARM64) and Linux,
   # which matches the Vercel runtime environment and fixes the "Illegal instruction" error.
-  PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"
+  PYTHON_URL="https://github.com/astral-sh/python-build-standalone/releases/download/20250818/cpython-3.12.11+20250818-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
   FILENAME=$(basename "$PYTHON_URL")
 
   echo "Downloading Python for ARM64 from $PYTHON_URL..."
